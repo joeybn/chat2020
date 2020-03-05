@@ -1,0 +1,348 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Socket.IO chat</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        outline: none;
+      }
+      body {
+        font: 13px Helvetica, Arial;
+        background: whitesmoke;
+        overflow: hidden;
+      }
+
+      #content {
+        display:flex;
+        flex-direction: column-reverse;
+        height: 100vh;
+      }
+
+      form {
+        display:flex;
+        background: white;
+        padding: 3px;
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+        height: 45px;
+      }
+
+      form input {
+        border: 0;
+        padding: 10px;
+        width: 100vw;
+        margin-right: .5%;
+      }
+
+      form button {
+        width: 100px;
+        border: none;
+        border-left: 1px solid gray;
+        color: DodgerBlue;
+        font-size: 16px;
+        cursor: pointer;
+      }
+
+      form button:hover {
+        color: RoyalBlue;
+      }
+
+      #main{
+        /* background: yellow; */
+
+        display: flex;
+        margin-bottom: 45px;
+        padding: 10px;
+        overflow: auto;
+
+        height: 100%;
+      }
+
+      #messages{
+        display: flex;
+        flex-direction: column;
+
+        width: 100%;
+
+        flex-direction: column-reverse;
+        overflow: auto;
+
+        border-collapse: collapse;
+      }
+
+      #messages #msgTable table{
+        margin-bottom: 5px;
+      }
+
+      #messages #msgTable td{
+        padding: 5px 10px;
+        border-radius: 10px;
+        max-width: 50vw;
+        overflow: auto;
+        word-wrap: break-word;
+      }
+
+      #messages #msgTable td#others{
+        background: RoyalBlue;
+        color: #E8E8E8;
+      }
+
+      #messages #msgTable td#yours{
+        background: DodgerBlue;
+        color: white;
+
+      }
+
+      table.leftAlign {
+        margin-left: auto;
+      }
+
+      .msgTimeOthers {
+        font-size: 10px;
+        color: dimgray;
+      }
+
+      .msgTimeYours {
+        font-size: 10px;
+        color: dimgray;
+        text-align: right;
+      }
+
+      .msgUser{
+        padding-bottom: 5px;
+        font-weight: bold;
+      }
+
+      .msgMessage{
+      }
+
+      #users{
+        display: flex;
+        flex-direction: column;
+        list-style-type: none;
+        padding: 10px;
+        /* background: green; */
+
+        width: 200px;
+
+        border-left: 1px solid dimgray;
+
+        overflow-x: hidden;
+      }
+
+      #users li{
+        padding-bottom: 10px;
+        padding-left: 10px;
+        color: dimgray;
+      }
+
+      #topBar{
+        height: 30px;
+        background: white;
+        padding: 10px;
+        color: dimgray;
+      }
+
+    </style>
+  </head>
+  <body>
+
+    <div id="content">
+      <div id="main">
+        <div id="messages"><div id="msgTable"></div></div>
+        <ul id="users"></ul>
+      </div>
+      <div id="topBar">You are User1.</div>
+      <form action="">
+        <input id="m" autocomplete="off" /><button><i class="fa fa-send"></i></button>
+      </form>
+    </div>
+
+    <script src="https://cdn.socket.io/socket.io-1.2.0.js"></script>
+    <script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+    <script>
+      $(function () {
+        var socket = io();
+        let clientUsername;
+        let clientColor = "FFFFFF";
+        let setUpFinished = false;
+
+        //get default username
+        socket.on('clientInfo', function(clientInfoObj){
+
+          let guestName = clientInfoObj.clientUsername;
+          let cookieName = getCookie("username");
+          if (cookieName === ""){
+            clientUsername = guestName;
+            setUpUsername(clientUsername);
+          }
+          else {
+            socket.emit('changeUsername', changedUsername = {
+              oldUsername: guestName,
+              newUsername: cookieName
+            });
+            socket.once('changeUserSuccess', function(success){
+              if (success == false){
+                clientUsername = guestName;
+                setUpUsername(clientUsername);
+              }
+              else{
+                clientUsername = cookieName;
+                setUpUsername(clientUsername);
+              }
+            });
+          }
+        });
+
+        function setUpUsername(clientUsername){
+          updateTopbar();
+          setCookie("username", clientUsername, 1);
+          socket.emit('setUpFinished', true);
+        }
+
+        //get chat history
+        socket.on('chatHistory', function(chatLog){
+          chatLog.forEach(function(msgObj){
+            displayMessage(msgObj);
+          });
+        });
+
+        //update user list
+        socket.on('userList', function(userList){
+          $('#users').html('');
+          userList.forEach(function(user){
+            let prepend = '<li>'+user.clientUsername+'</li>'
+            $('#users').html(prepend + $('#users').html());
+          });
+        });
+
+        //send message
+        $('form').submit(function(){
+          let message = $('#m').val()
+          if (message.charAt(0) === '/')
+          {
+            commandHandler(message);
+          }
+          else{
+            let clientMsgObj = {
+              message: $('#m').val(),
+              username: clientUsername,
+              color: clientColor
+            };
+            socket.emit('chat message', clientMsgObj);
+          }
+          $('#m').val(''); // CHANGE LATER FOR TESTING
+          return false;
+        });
+
+
+        // command handler
+        function commandHandler(message){
+          // nick change
+          if (message.slice(0,6) === '/nick '){
+            if (message.charAt(6) !== '' && message.charAt(6) !== ' ')
+            {
+              socket.emit('changeUsername', changedUsername = {
+                oldUsername: clientUsername,
+                newUsername: message.slice(6)
+              });
+              socket.once('changeUserSuccess', function(success){
+                if (success === true){
+                  clientUsername = message.slice(6);
+                  updateTopbar();
+                  let append ='<table class="leftAlign"><td id="yours"><div class="msgUser">Changed Username</div><div class="msgMessage"Successfully changed username</div></td></tr><tr><td class="msgTimeYours">Only you can see this</td></tr></table>';
+                  $('#msgTable').append(append);
+                  setCookie("username", clientUsername, 1);
+                }
+                if (success === false) {
+                  console.log("error message go!");
+                  let append ='<table class="leftAlign"><td id="yours"><div class="msgUser">Error: Invalid Username</div><div class="msgMessage">Username already exists</div></td></tr><tr><td class="msgTimeYours">Only you can see this</td></tr></table>';
+                  $('#msgTable').append(append);
+                }
+              });
+            // invalid username
+            }
+            else{
+              let append ='<table class="leftAlign"><td id="yours"><div class="msgUser">Error: Invalid Username</div><div class="msgMessage">Usage: /nick username</div></td></tr><tr><td class="msgTimeYours">Only you can see this</td></tr></table>';
+              $('#msgTable').append(append);
+            }
+          }
+          // nick color change
+          else if (message.slice(0,11) === '/nickcolor '){
+            if (message.slice(11).length === 6){
+              clientColor = message.slice(11);
+              let append ='<table class="leftAlign"><td id="yours"><div class="msgUser">Changed Username Color</div><div class="msgMessage"Successfully changed username</div></td></tr><tr><td class="msgTimeYours">Only you can see this</td></tr></table>';
+              $('#msgTable').append(append);
+            }
+            // invalid color
+            else{
+              let append ='<table class="leftAlign"><td id="yours"><div class="msgUser">Error: Invalid Color</div><div class="msgMessage">Usage: /nick [rrggbb]</div></td></tr><tr><td class="msgTimeYours">Only you can see this</td></tr></table>';
+              $('#msgTable').append(append);
+            }
+          }
+          // invalid command
+          else {
+            let append ='<table class="leftAlign"><td id="yours"><div class="msgUser">Error: Invalid Command</div><div class="msgMessage">Commands: <br>/nick [username]<br>/nickcolor [rrggbb]</div></td></tr><tr><td class="msgTimeYours">Only you can see this</td></tr></table>';
+            $('#msgTable').append(append);
+          }
+        }
+
+        //receive message
+        socket.on('chat message', function(msgObj){
+          displayMessage(msgObj);
+          $('#messages').scrollTop(9999999999999); //scroll down when sending msg
+        });
+
+        //display message
+        function displayMessage(msgObj){
+          let timeStamp = msgObj.timeStamp;
+          let message = msgObj.message;
+          let color = msgObj.color;
+
+          if (clientUsername === msgObj.username){ //if current user, bold
+            let append ='<table class="leftAlign"><td id="yours"><div class="msgUser"><font color =#'+color+'>'+msgObj.username+'</font></div><div class="msgMessage">'+message+'</div></td></tr><tr><td class="msgTimeYours">'+timeStamp+'</td></tr></table>';
+            $('#msgTable').append(append);
+          }
+          else{
+            let append ='<table><td id="others"><div class="msgUser"><font color =#'+color+'>'+msgObj.username+'</font></div><div class="msgMessage">'+message+'</div></td><tr><td class="msgTimeOthers">'+timeStamp+'</td></tr></table>';
+            $('#msgTable').append(append);
+          }
+        }
+
+        //update topbar username
+        function updateTopbar(){
+          $('#topBar').html('Connected as <b>'+clientUsername);
+          console.log("inupdatetoolbar: "+clientUsername)
+        }
+
+        //cookie functions from w3schools
+        function setCookie(cname, cvalue, exdays) {
+          var d = new Date();
+          d.setTime(d.getTime() + (exdays * 24 * 60 * 60 * 1000));
+          var expires = "expires="+d.toUTCString();
+          document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
+        }
+
+        function getCookie(cname) {
+          var name = cname + "=";
+          var ca = document.cookie.split(';');
+          for(var i = 0; i < ca.length; i++) {
+            var c = ca[i];
+            while (c.charAt(0) == ' ') {
+              c = c.substring(1);
+            }
+            if (c.indexOf(name) == 0) {
+              return c.substring(name.length, c.length);
+            }
+          }
+          return "";
+        }
+      });
+    </script>
+  </body>
+</html>
